@@ -1,0 +1,57 @@
+# AeroCogito/h7-digital-firmware - Code Owners
+#
+# This file defines code ownership for the repository.
+# When files are modified in a pull request, GitHub automatically
+# requests review from the specified owners.
+#
+# More specific rules override general ones.
+# Last matching pattern wins.
+#
+# Learn more: https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+
+# ============================================
+# DEFAULT OWNER
+# ============================================
+# All files require review and approval from @michael-cerasulo
+* @michael-cerasulo
+
+
+# ============================================
+# SECURITY-CRITICAL FILES
+# ============================================
+# GitHub Actions workflows - control entire build and signing process
+/.github/workflows/ @michael-cerasulo
+/.github/workflows/build-signed-firmware.yml @michael-cerasulo
+/.github/workflows/check-ardupilot-releases.yml @michael-cerasulo
+
+# Firmware signing keys - most critical security component
+/keys/ @michael-cerasulo
+/keys/AeroCogito_public_key.dat @michael-cerasulo
+/keys/FINGERPRINT.txt @michael-cerasulo
+
+# Security policy and compliance documentation
+/SECURITY.md @michael-cerasulo
+
+# License - legal implications
+/LICENSE @michael-cerasulo
+
+# Git configuration - controls what gets committed
+/.gitignore @michael-cerasulo
+
+
+# ============================================
+# GITHUB CONFIGURATION
+# ============================================
+# GitHub configuration files (dependabot, actions, etc.)
+/.github/ @michael-cerasulo
+/.github/CODEOWNERS @michael-cerasulo
+
+
+# ============================================
+# DOCUMENTATION
+# ============================================
+# README and documentation files
+/README.md @michael-cerasulo
+/docs/ @michael-cerasulo
+/docs/images/ @michael-cerasulo
+*.md @michael-cerasulo

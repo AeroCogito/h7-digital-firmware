@@ -1,0 +1,65 @@
+# Private Keys - NEVER commit these!
+*_private_key.dat
+*.pem
+*.key
+!*_public_key.dat
+
+# Build artifacts
+build/
+*.o
+*.elf
+*.bin
+*.hex
+!bootloaders/*.bin
+!bootloaders/*.hex
+
+# ArduPilot build
+ardupilot/
+.waf-*
+.waf3-*
+.lock-waf*
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# OS
+Thumbs.db
+Desktop.ini
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+*.backup
+
+# Archives (but allow release archives)
+*.zip
+*.tar.gz
+*.tgz
+!releases/*.zip
+!releases/*.tar.gz
+
+# Secrets and credentials
+secrets/
+credentials/
+.env
+.env.local

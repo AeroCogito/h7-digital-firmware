@@ -1,0 +1,62 @@
+name: Check ArduPilot Releases
+
+on:
+  schedule:
+    # Run daily at UTC midnight
+    - cron: '0 0 * * *'
+  workflow_dispatch:  # Allow manual trigger
+
+jobs:
+  check-releases:
+    runs-on: ubuntu-latest
+    outputs:
+      new_release: ${{ steps.check.outputs.new_release }}
+      release_tag: ${{ steps.check.outputs.release_tag }}
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      
+      - name: Check for new ArduPilot releases
+        id: check
+        run: |
+          # Get latest stable Copter release from ArduPilot
+          LATEST_RELEASE=$(curl -s https://api.github.com/repos/ArduPilot/ardupilot/releases | \
+            jq -r '[.[] | select(.tag_name | startswith("Copter-"))] | .[0].tag_name')
+
+          echo "Latest ArduPilot release: $LATEST_RELEASE"
+          
+          # Check if we got a valid release
+          if [ "$LATEST_RELEASE" == "null" ] || [ -z "$LATEST_RELEASE" ]; then
+            echo "❌ Error: Could not find any Copter releases"
+            exit 1
+          fi
+
+          # Check if we've already built this version
+          if git tag | grep -q "^${LATEST_RELEASE}-signed$"; then
+            echo "Already built: $LATEST_RELEASE"
+            echo "new_release=false" >> $GITHUB_OUTPUT
+          else
+            echo "New release found: $LATEST_RELEASE"
+            echo "new_release=true" >> $GITHUB_OUTPUT
+            echo "release_tag=$LATEST_RELEASE" >> $GITHUB_OUTPUT
+          fi
+      
+      - name: Trigger build if new release
+        if: steps.check.outputs.new_release == 'true'
+        uses: peter-evans/repository-dispatch@v4
+        with:
+          token: ${{ secrets.DISPATCH_TOKEN }}
+          event-type: build-new-release
+          client-payload: '{"release_tag": "${{ steps.check.outputs.release_tag }}"}'
+      
+      - name: Log result
+        run: |
+          if [ "${{ steps.check.outputs.new_release }}" == "true" ]; then
+            echo "✅ New release detected: ${{ steps.check.outputs.release_tag }}"
+            echo "Build workflow triggered automatically"
+          else
+            echo "ℹ️ No new releases found"
+          fi

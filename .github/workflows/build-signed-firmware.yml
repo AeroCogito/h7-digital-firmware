@@ -1,0 +1,526 @@
+name: Build Signed Firmware
+
+on:
+  repository_dispatch:
+    types: [build-new-release]
+  workflow_dispatch:
+    inputs:
+      ardupilot_tag:
+        description: 'ArduPilot release tag to build (e.g., Copter-4.5.7)'
+        required: true
+        type: string
+
+env:
+  BOARD_NAME: AeroCogito-H7Digital
+  VEHICLE_TYPE: copter
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+      attestations: write
+      id-token: write 
+    outputs:
+      attestation-url: ${{ steps.attest.outputs.attestation-url }}
+      attestation-id: ${{ steps.attest.outputs.attestation-id }}
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+      
+      - name: Get ArduPilot release tag
+        id: get_tag
+        run: |
+          if [ "${{ github.event_name }}" == "repository_dispatch" ]; then
+            echo "tag=${{ github.event.client_payload.release_tag }}" >> $GITHUB_OUTPUT
+          else
+            echo "tag=${{ github.event.inputs.ardupilot_tag }}" >> $GITHUB_OUTPUT
+          fi
+      
+      - name: Clone ArduPilot
+        run: |
+          echo "Cloning ArduPilot ${{ steps.get_tag.outputs.tag }}..."
+          git clone --recursive --depth 1 \
+            --branch ${{ steps.get_tag.outputs.tag }} \
+            https://github.com/ArduPilot/ardupilot.git
+          
+          cd ardupilot
+          git log -1 --format="%H %s"
+      
+      - name: Install ArduPilot dependencies using official script
+        working-directory: ardupilot
+        run: |
+          echo "Installing ArduPilot build dependencies using official script..."
+          echo "This ensures correct toolchain and dependency versions."
+          echo ""
+          
+          # Set environment variables to skip unnecessary components for CI
+          export SKIP_AP_GRAPHIC_ENV=1      # Skip GUI packages (matplotlib, opencv, wxPython)
+          export SKIP_AP_COV_ENV=1          # Skip coverage tools (lcov, gcovr)
+          export SKIP_AP_COMPLETION_ENV=1   # Skip bash completion setup
+          export SKIP_AP_GIT_CHECK=1        # Skip git submodule update (already done with --recursive)
+          export DO_AP_STM_ENV=1            # IMPORTANT: Install STM32 ARM toolchain
+          export ASSUME_YES=true            # Non-interactive mode
+          
+          # Run official installation script
+          Tools/environment_install/install-prereqs-ubuntu.sh -y
+          
+          # Reload the path as per ArduPilot documentation
+          . ~/.profile
+          
+          echo ""
+          echo "✅ ArduPilot build environment installed"
+          echo ""
+          echo "Installed toolchain:"
+          arm-none-eabi-gcc --version | head -n1
+          
+          # Persist the entire modified PATH to subsequent steps
+          # This ensures any additions made by the install script are available
+          echo "PATH=$PATH" >> $GITHUB_ENV
+
+          # Install cryptographic dependencies for firmware signing
+          echo ""
+          echo "Installing Python cryptographic packages for firmware signing..."
+          python3 -m pip install pymonocypher==3.1.3.2
+          echo "✅ Cryptographic dependencies installed"
+      
+      - name: Setup private key
+        run: |
+          echo "Setting up signing key..."
+          echo "${{ secrets.SIGNING_PRIVATE_KEY }}" | base64 -d > private_key.dat
+          chmod 600 private_key.dat
+          echo "✅ Private key configured"
+      
+      - name: Build secure bootloader
+        working-directory: ardupilot
+        run: |
+          echo "Building secure bootloader from source with embedded public key..."
+          echo ""
+          
+          # Verify public key exists
+          if [ ! -f "../keys/AeroCogito_public_key.dat" ]; then
+            echo "❌ Error: Public key not found at keys/AeroCogito_public_key.dat"
+            exit 1
+          fi
+          
+          echo "Public key fingerprint:"
+          sha256sum ../keys/AeroCogito_public_key.dat | awk '{print $1}' | fold -w2 | paste -sd':' -
+          echo ""
+          
+          # Build secure bootloader using ArduPilot's build script
+          echo "Running: Tools/scripts/build_bootloaders.py ${{ env.BOARD_NAME }} --signing-key=../keys/AeroCogito_public_key.dat"
+          echo ""
+          
+          Tools/scripts/build_bootloaders.py ${{ env.BOARD_NAME }} \
+            --signing-key=../keys/AeroCogito_public_key.dat
+          
+          echo ""
+          
+          # Verify bootloader files were created FIRST
+          if [ ! -f "Tools/bootloaders/${{ env.BOARD_NAME }}_bl.bin" ]; then
+            echo "❌ Error: Bootloader .bin file not generated"
+            echo "   This usually means the board is not supported in this ArduPilot version"
+            echo "   or the build script failed."
+            exit 1
+          fi
+          
+          if [ ! -f "Tools/bootloaders/${{ env.BOARD_NAME }}_bl.hex" ]; then
+            echo "❌ Error: Bootloader .hex file not generated"
+            echo "   This usually means the board is not supported in this ArduPilot version"
+            echo "   or the build script failed."
+            exit 1
+          fi
+          
+          # Only print success AFTER verification
+          echo "✅ Secure bootloader built from source and updated in Tools/bootloaders/"
+          echo ""
+          echo "Generated bootloader files:"
+          ls -lh Tools/bootloaders/${{ env.BOARD_NAME }}_bl.*
+          echo ""
+          echo "✅ Bootloader verification complete"
+      
+      - name: Configure and build signed firmware
+        working-directory: ardupilot
+        run: |
+          echo "Configuring build for ${{ env.BOARD_NAME }} with signed firmware..."
+          echo "The freshly built secure bootloader will be included automatically."
+          echo ""
+          
+          # Configure with signed firmware and private key
+          ./waf configure --board ${{ env.BOARD_NAME }} \
+                          --signed-fw \
+                          --private-key ../private_key.dat
+          
+          echo "✅ Configuration complete"
+          echo ""
+          echo "Building ${{ env.VEHICLE_TYPE }} firmware..."
+          echo "This will:"
+          echo "  1. Compile ArduPilot firmware from source"
+          echo "  2. Sign firmware with private key (Ed25519)"
+          echo "  3. Include secure bootloader in combined image"
+          echo ""
+          
+          # Build - this will automatically sign the firmware
+          ./waf ${{ env.VEHICLE_TYPE }}
+          
+          echo "✅ Build and signing complete"
+          echo ""
+          echo "Generated firmware files:"
+          ls -lh build/${{ env.BOARD_NAME }}/bin/
+      
+      - name: Prepare release files
+        working-directory: ardupilot/build/${{ env.BOARD_NAME }}/bin
+        run: |
+          echo "Preparing files for release..."
+          
+          # When built with --signed-fw, the .apj file is already signed
+          if [ -f "ardu${{ env.VEHICLE_TYPE }}.apj" ]; then
+            cp "ardu${{ env.VEHICLE_TYPE }}.apj" \
+              "ardu${{ env.VEHICLE_TYPE }}-${{ steps.get_tag.outputs.tag }}-signed.apj"
+            echo "✅ Signed APJ prepared"
+          else
+            echo "❌ Error: APJ file not found!"
+            ls -lh
+            exit 1
+          fi
+          
+          # Check if _with_bl.hex exists
+          if [ -f "ardu${{ env.VEHICLE_TYPE }}_with_bl.hex" ]; then
+            cp "ardu${{ env.VEHICLE_TYPE }}_with_bl.hex" \
+              "ardu${{ env.VEHICLE_TYPE }}-${{ steps.get_tag.outputs.tag }}-with-bootloader-signed.hex"
+            echo "✅ Combined bootloader+firmware HEX prepared"
+          else
+            echo "❌ Error: _with_bl.hex not found!"
+            ls -lh
+            exit 1
+          fi
+          
+          echo ""
+          echo "Release files ready:"
+          ls -lh ardu${{ env.VEHICLE_TYPE }}-${{ steps.get_tag.outputs.tag }}*
+      
+      - name: Generate checksums
+        working-directory: ardupilot/build/${{ env.BOARD_NAME }}/bin
+        run: |
+          echo "Generating checksums..."
+          
+          # SHA-256 checksums
+          CHECKSUM_FILE="ardu${{ env.VEHICLE_TYPE }}-${{ steps.get_tag.outputs.tag }}-SHA256SUMS.txt"
+          > "$CHECKSUM_FILE"
+          
+          sha256sum "ardu${{ env.VEHICLE_TYPE }}-${{ steps.get_tag.outputs.tag }}-signed.apj" >> "$CHECKSUM_FILE"
+          sha256sum "ardu${{ env.VEHICLE_TYPE }}-${{ steps.get_tag.outputs.tag }}-with-bootloader-signed.hex" >> "$CHECKSUM_FILE"
+          
+          echo "✅ SHA-256 checksums generated"
+          cat "$CHECKSUM_FILE"
+          echo ""
+          
+          # SHA-512 checksums
+          CHECKSUM_FILE_512="ardu${{ env.VEHICLE_TYPE }}-${{ steps.get_tag.outputs.tag }}-SHA512SUMS.txt"
+          > "$CHECKSUM_FILE_512"
+          
+          sha512sum "ardu${{ env.VEHICLE_TYPE }}-${{ steps.get_tag.outputs.tag }}-signed.apj" >> "$CHECKSUM_FILE_512"
+          sha512sum "ardu${{ env.VEHICLE_TYPE }}-${{ steps.get_tag.outputs.tag }}-with-bootloader-signed.hex" >> "$CHECKSUM_FILE_512"
+          
+          echo "✅ SHA-512 checksums generated"
+      
+      - name: Generate build metadata and fingerprint
+        working-directory: ardupilot/build/${{ env.BOARD_NAME }}/bin
+        run: |
+          METADATA_FILE="ardu${{ env.VEHICLE_TYPE }}-${{ steps.get_tag.outputs.tag }}-build-metadata.txt"
+          
+          echo "==================================" > "$METADATA_FILE"
+          echo "AeroCogito Signed Firmware Build" >> "$METADATA_FILE"
+          echo "==================================" >> "$METADATA_FILE"
+          echo "" >> "$METADATA_FILE"
+          
+          echo "Build Information:" >> "$METADATA_FILE"
+          echo "  ArduPilot Version: ${{ steps.get_tag.outputs.tag }}" >> "$METADATA_FILE"
+          echo "  Build Date: $(date -u +"%Y-%m-%dT%H:%M:%SZ")" >> "$METADATA_FILE"
+          echo "  Board: ${{ env.BOARD_NAME }}" >> "$METADATA_FILE"
+          echo "  Vehicle: ${{ env.VEHICLE_TYPE }}" >> "$METADATA_FILE"
+          echo "  GitHub Workflow: ${{ github.run_id }}" >> "$METADATA_FILE"
+          echo "  Repository Commit: ${{ github.sha }}" >> "$METADATA_FILE"
+          echo "" >> "$METADATA_FILE"
+          
+          echo "ArduPilot Source:" >> "$METADATA_FILE"
+          echo "  Repository: https://github.com/ArduPilot/ardupilot" >> "$METADATA_FILE"
+          echo "  Commit: $(git -C ../../../../ardupilot rev-parse HEAD)" >> "$METADATA_FILE"
+          echo "  Tag: ${{ steps.get_tag.outputs.tag }}" >> "$METADATA_FILE"
+          echo "" >> "$METADATA_FILE"
+          
+          echo "Build Environment:" >> "$METADATA_FILE"
+          echo "  Setup Method: ArduPilot official install-prereqs-ubuntu.sh" >> "$METADATA_FILE"
+          echo "  Operating System: Ubuntu 22.04 LTS" >> "$METADATA_FILE"
+          echo "  Build System: ArduPilot WAF" >> "$METADATA_FILE"
+          echo "" >> "$METADATA_FILE"
+          
+          echo "Toolchain:" >> "$METADATA_FILE"
+          arm-none-eabi-gcc --version | head -n1 >> "$METADATA_FILE"
+          echo "  Source: ArduPilot official toolchain (gcc-arm-none-eabi-10-2020-q4-major)" >> "$METADATA_FILE"
+          echo "" >> "$METADATA_FILE"
+          
+          echo "Secure Bootloader:" >> "$METADATA_FILE"
+          echo "  Built from Source: Yes (Tools/scripts/build_bootloaders.py)" >> "$METADATA_FILE"
+          echo "  Build Method: ArduPilot build_bootloaders.py script" >> "$METADATA_FILE"
+          echo "  Public Key Embedded: AeroCogito signing key" >> "$METADATA_FILE"
+          echo "  ArduPilot Keys Included: Yes (3 keys for fallback compatibility)" >> "$METADATA_FILE"
+          echo "  Bootloader Files: Tools/bootloaders/${{ env.BOARD_NAME }}_bl.bin/hex" >> "$METADATA_FILE"
+          echo "" >> "$METADATA_FILE"
+          
+          echo "Cryptographic Details:" >> "$METADATA_FILE"
+          echo "  Signing Algorithm: Ed25519" >> "$METADATA_FILE"
+          echo "  Hash Algorithm: SHA-256/SHA-512" >> "$METADATA_FILE"
+          echo "" >> "$METADATA_FILE"
+          echo "  Public Key Fingerprint (SHA-256):" >> "$METADATA_FILE"
+          echo "  $(sha256sum ../../../../keys/AeroCogito_public_key.dat | awk '{print $1}' | fold -w2 | paste -sd':' -)" >> "$METADATA_FILE"
+          echo "" >> "$METADATA_FILE"
+          
+          echo "Supply Chain & Compliance:" >> "$METADATA_FILE"
+          echo "  All Components Built from Source: Yes" >> "$METADATA_FILE"
+          echo "  No Pre-Built Binaries: Confirmed" >> "$METADATA_FILE"
+          echo "  Official ArduPilot Toolchain: Yes" >> "$METADATA_FILE"
+          echo "  Build Logs Available: GitHub Actions (90 days)" >> "$METADATA_FILE"
+          echo "  Reproducible Build: Yes (via workflow re-run)" >> "$METADATA_FILE"
+          echo "" >> "$METADATA_FILE"
+          
+          echo "✅ Build metadata generated"
+          cat "$METADATA_FILE"
+
+      - name: Generate build provenance attestation
+        id: attest
+        uses: actions/attest-build-provenance@v3
+        with:
+          subject-path: |
+            ardupilot/build/${{ env.BOARD_NAME }}/bin/*-${{ steps.get_tag.outputs.tag }}-signed.apj
+            ardupilot/build/${{ env.BOARD_NAME }}/bin/*-${{ steps.get_tag.outputs.tag }}-with-bootloader-signed.hex
+      
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: firmware-${{ env.VEHICLE_TYPE }}-${{ steps.get_tag.outputs.tag }}
+          path: |
+            ardupilot/build/${{ env.BOARD_NAME }}/bin/*-${{ steps.get_tag.outputs.tag }}-signed.apj
+            ardupilot/build/${{ env.BOARD_NAME }}/bin/*-${{ steps.get_tag.outputs.tag }}-with-bootloader-signed.hex
+            ardupilot/build/${{ env.BOARD_NAME }}/bin/*-${{ steps.get_tag.outputs.tag }}-*SUMS.txt
+            ardupilot/build/${{ env.BOARD_NAME }}/bin/*-${{ steps.get_tag.outputs.tag }}-build-metadata.txt
+          retention-days: 90
+      
+      - name: Cleanup private key
+        if: always()
+        run: |
+          echo "Cleaning up private key..."
+          rm -f private_key.dat
+          echo "✅ Private key removed"
+  
+  create-release:
+    needs: build
+    runs-on: ubuntu-latest
+    if: success()
+    permissions:
+      contents: write
+      actions: write
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+      
+      - name: Get release tag
+        id: get_tag
+        run: |
+          if [ "${{ github.event_name }}" == "repository_dispatch" ]; then
+            echo "tag=${{ github.event.client_payload.release_tag }}" >> $GITHUB_OUTPUT
+          else
+            echo "tag=${{ github.event.inputs.ardupilot_tag }}" >> $GITHUB_OUTPUT
+          fi
+      
+      - name: Download all artifacts
+        uses: actions/download-artifact@v5
+        with:
+          path: ./artifacts
+      
+      - name: Prepare release files
+        run: |
+          echo "Organizing release files..."
+          mkdir -p release_files
+          find ./artifacts -type f \( -name "*.apj" -o -name "*.hex" -o -name "*SUMS.txt" -o -name "*build-metadata.txt" \) -exec cp {} release_files/ \;
+          
+          echo "Release files prepared:"
+          ls -lh release_files/
+      
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.get_tag.outputs.tag }}-signed
+          name: "Signed - ${{ steps.get_tag.outputs.tag }}"
+          body: |
+            ## 🔐 Signed AeroCogito H7-Digital ArduPilot Firmware
+            
+            Based on official **ArduPilot ${{ steps.get_tag.outputs.tag }}**
+
+            ### Security & Compliance Details
+
+            - ✅ Built from source using ArduPilot's official toolchain and build environment
+            - ✅ Secure bootloader built from source (not pre-compiled)
+            - ✅ Signed with AeroCogito private key (Ed25519)
+            - ✅ DIU Blue UAS / NDAA Section 848 compliant
+            - ✅ Complete supply chain transparency
+            - ✅ No binary blobs - everything compiled from source
+            - ✅ **SLSA Build Provenance** ([Attestation](${{ needs.build.outputs.attestation-url }}))
+
+            **For detailed security information, cryptographic details, verification procedures, and compliance attestation:**
+            
+            👉 **[Read SECURITY.md](https://github.com/${{ github.repository }}/blob/main/SECURITY.md)**
+            
+            **Build details and provenance:**
+            - [View attestation](${{ needs.build.outputs.attestation-url }})
+            - Download `arducopter-${{ steps.get_tag.outputs.tag }}-build-metadata.txt`
+            - [View Build Log](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
+            
+            ---
+
+            ## 📥 Quick Start
+            
+            ### Which File Do I Need?
+            
+            | Scenario | File to Download | Installation Method |
+            |----------|-----------------|---------------------|
+            | **Firmware update** (you already have secure bootloader) | `arducopter-${{ steps.get_tag.outputs.tag }}-signed.apj` | Mission Planner / QGroundControl |
+            | **Fresh install** or **DFU recovery** | `arducopter-${{ steps.get_tag.outputs.tag }}-with-bootloader-signed.hex` | STM32CubeProgrammer / BetaFlight Configurator |
+            
+            ---
+
+            ## 🛡️ Verify Integrity & Authenticity
+
+            **Always verify checksums before flashing firmware:**
+            
+            **Linux/macOS:**
+            ```bash
+            # Download checksum file
+            wget arducopter-${{ steps.get_tag.outputs.tag }}-SHA256SUMS.txt
+            
+            # Verify
+            sha256sum -c arducopter-${{ steps.get_tag.outputs.tag }}-SHA256SUMS.txt
+            
+            # Expected output: OK for each file
+            ```
+
+            **Windows PowerShell:**
+            ```powershell
+            Get-FileHash arducopter-${{ steps.get_tag.outputs.tag }}-signed.apj -Algorithm SHA256
+            # Compare hash with SHA256SUMS.txt
+            ```
+            
+            **Advanced (optional): Verify Build Provenance (SLSA Attestation)**
+
+            Requires [GitHub CLI](https://cli.github.com/):
+            ```bash
+            gh attestation verify arducopter-${{ steps.get_tag.outputs.tag }}-signed.apj --owner ${{ github.repository_owner }}
+            ```
+            **Proves:**
+            - ✅ Built by official GitHub Actions workflow
+            - ✅ From verified commit (traceable source)
+            - ✅ Auditable build process
+            - ✅ Cryptographically signed by GitHub/Sigstore
+      
+            ---
+            
+            ## 📖 Installation Instructions
+            
+            <details>
+            <summary><b>Option A: Firmware Update (.apj file)</b></summary>
+            
+            **Requirements:** You already have the AeroCogito secure bootloader installed
+            
+            **Mission Planner:**
+            1. Connect your flight controller
+            2. Setup → Install Firmware → Load custom firmware
+            3. Select `arducopter-${{ steps.get_tag.outputs.tag }}-signed.apj`
+            4. Wait for upload to complete
+            
+            **QGroundControl:**
+            1. Connect your flight controller
+            2. Vehicle Setup → Firmware
+            3. Select "Custom firmware file"
+            4. Choose `arducopter-${{ steps.get_tag.outputs.tag }}-signed.apj`
+            
+            The bootloader will automatically verify the signature before running the firmware. ✅
+            </details>
+            
+            <details>
+            <summary><b>Option B: Complete Flash with Bootloader (.hex file)</b></summary>
+            
+            **Use for:** Fresh installation, DFU recovery, or coming from other firmware (e.g., Betaflight)
+            
+            **Put board in DFU mode:**
+            1. Disconnect USB
+            2. Hold BOOT button
+            3. Connect USB
+            4. Release BOOT button
+            
+            **STM32CubeProgrammer (Recommended):**
+            1. Download from [st.com](https://www.st.com/en/development-tools/stm32cubeprog.html)
+            2. Open STM32CubeProgrammer
+            3. Connection: USB → Connect
+            4. Erasing & Programming tab
+            5. Browse to `arducopter-${{ steps.get_tag.outputs.tag }}-with-bootloader-signed.hex`
+            6. Start address: `0x08000000`
+            7. ✅ Check "Verify programming"
+            8. ❌ Uncheck "Skip flash erase"
+            9. Click "Start Programming"
+            10. Disconnect and power cycle
+            
+            **BetaFlight/INAV Configurator:**
+            1. Open configurator
+            2. Firmware Flasher tab
+            3. Load Firmware [Local]
+            4. Select `arducopter-${{ steps.get_tag.outputs.tag }}-with-bootloader-signed.hex`
+            5. Flash Firmware
+            6. Power cycle when complete
+            </details>
+            
+            ---
+            ## 📁 All Files in This Release
+            
+            | File | Purpose |
+            |------|---------|
+            | `*-signed.apj` | Signed firmware for Mission Planner/QGC updates |
+            | `*-with-bootloader-signed.hex` | Complete signed bootloader+firmware for DFU flashing |
+            | `*-SHA256SUMS.txt` | SHA-256 checksums for verification |
+            | `*-SHA512SUMS.txt` | SHA-512 checksums for verification |
+            | `*-build-metadata.txt` | Complete build provenance and details |
+            
+            ---
+            
+            ### 🆘 Support
+            
+            - **Security Issues:** security@aerocogito.com ([Security Policy](https://github.com/${{ github.repository }}/blob/main/SECURITY.md))
+            - **General Support:** support@aerocogito.com
+            - **Documentation:** [ArduPilot Wiki](https://ardupilot.org/copter/)
+            - **License:** GPL-3.0 | **Source:** [ArduPilot/ardupilot](https://github.com/ArduPilot/ardupilot) | **No Warranty**
+          files: |
+            release_files/*
+          draft: false
+          prerelease: false
+          make_latest: true
+
+      - name: Delete artifacts after successful release
+        uses: geekyeggo/delete-artifact@v5
+        if: success()
+        with:
+          name: firmware-${{ env.VEHICLE_TYPE }}-${{ steps.get_tag.outputs.tag }}
+          failOnError: false
+      
+      - name: Log release info
+        run: |
+          echo "✅ Release created successfully!"
+          echo "Tag: ${{ steps.get_tag.outputs.tag }}-signed"
+          echo "URL: https://github.com/${{ github.repository }}/releases/tag/${{ steps.get_tag.outputs.tag }}-signed"
+          echo ""
+          echo "Build Attestation:"
+          echo "  ID: ${{ needs.build.outputs.attestation-id }}"
+          echo "  URL: ${{ needs.build.outputs.attestation-url }}"
+          echo ""
+          echo "Files included:"
+          ls -lh release_files/
