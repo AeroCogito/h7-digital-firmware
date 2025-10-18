@@ -139,6 +139,7 @@ For compliance audits and automated verification, we provide [**SLSA build attes
 **Prerequisites:**
 ```bash
 # Install GitHub CLI
+
 # macOS
 brew install gh
 
