@@ -3,7 +3,7 @@ name: Check ArduPilot Releases
 on:
   schedule:
     # Run daily at UTC midnight
-    - cron: '0 0 * * 0'
+    - cron: '0 0 * * *'
   workflow_dispatch:  # Allow manual trigger
 
 jobs:
@@ -22,18 +22,33 @@ jobs:
       - name: Check for new ArduPilot releases
         id: check
         run: |
-          # Get latest stable Copter release from ArduPilot
-          LATEST_RELEASE=$(curl -s https://api.github.com/repos/ArduPilot/ardupilot/releases | \
-            jq -r '[.[] | select(.tag_name | startswith("Copter-"))] | .[0].tag_name')
+          BASE_VERSION="Copter-4.6.2"
 
-          echo "Latest ArduPilot release: $LATEST_RELEASE"
-          
-          # Check if we got a valid release
-          if [ "$LATEST_RELEASE" == "null" ] || [ -z "$LATEST_RELEASE" ]; then
+          # Fetch all Copter releases
+          LATEST_RELEASE=$(curl -s https://api.github.com/repos/ArduPilot/ardupilot/releases | \
+            jq -r '[.[] | select(.tag_name | test("^Copter-[0-9]+\\.[0-9]+\\.[0-9]+$"))] 
+                   | map(.tag_name) 
+                   | sort_by(. | sub("Copter-";"") | split(".") | map(tonumber)) 
+                   | last')
+
+          echo "Latest Copter release: $LATEST_RELEASE"
+
+          if [ -z "$LATEST_RELEASE" ] || [ "$LATEST_RELEASE" == "null" ]; then
             echo "❌ Error: Could not find any Copter releases"
             exit 1
           fi
 
+          # Strip the "Copter-" prefix
+          BASE_VER_NUM=${BASE_VERSION#Copter-}
+          LATEST_VER_NUM=${LATEST_RELEASE#Copter-}
+
+          # Compare numeric versions
+          if [ "$(printf '%s\n%s' "$BASE_VER_NUM" "$LATEST_VER_NUM" | sort -V | tail -n1)" != "$LATEST_VER_NUM" ]; then
+            echo "Latest release ($LATEST_VER_NUM) is not greater than baseline ($BASE_VER_NUM)"
+            echo "new_release=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          
           # Check if we've already built this version
           if git tag | grep -q "^${LATEST_RELEASE}-signed$"; then
             echo "Already built: $LATEST_RELEASE"
