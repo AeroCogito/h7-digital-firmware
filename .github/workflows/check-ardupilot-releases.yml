@@ -42,13 +42,13 @@ jobs:
           BASE_VER_NUM=${BASE_VERSION#Copter-}
           LATEST_VER_NUM=${LATEST_RELEASE#Copter-}
 
-          # Compare numeric versions
-          if [ "$(printf '%s\n%s' "$BASE_VER_NUM" "$LATEST_VER_NUM" | sort -V | tail -n1)" != "$LATEST_VER_NUM" ]; then
+          # Compare numeric versions, exit if latest is not greater than baseline
+          if [ "$(printf '%s\n%s' "$LATEST_VER_NUM" "$BASE_VER_NUM" | sort -V | tail -n1)" = "$BASE_VER_NUM" ]; then
             echo "Latest release ($LATEST_VER_NUM) is not greater than baseline ($BASE_VER_NUM)"
-            echo "new_release=false" >> $GITHUB_OUTPUT
+            echo "new_release=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          
+
           # Check if we've already built this version
           if git tag | grep -q "^${LATEST_RELEASE}-signed$"; then
             echo "Already built: $LATEST_RELEASE"
