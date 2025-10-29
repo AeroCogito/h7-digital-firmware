@@ -63,3 +63,10 @@ secrets/
 credentials/
 .env
 .env.local
+
+# Internal working documents (analysis, reviews, proposals)
+*_ANALYSIS.md
+*_REVIEW.md
+*_STREAMLINED.md
+*_PROPOSAL.md
+*_DRAFT.md

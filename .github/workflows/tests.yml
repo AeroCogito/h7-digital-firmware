@@ -1,0 +1,244 @@
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+# Prevent concurrent test runs
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint-workflows:
+    name: Lint GitHub Actions Workflows
+    runs-on: ubuntu-22.04
+    timeout-minutes: 5
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8  # v5.0.0
+
+      - name: Install yamllint
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y yamllint
+
+      - name: Lint workflow files
+        run: |
+          echo "Linting GitHub Actions workflow files..."
+          yamllint -d "{extends: default, rules: {line-length: {max: 120}, truthy: disable}}" .github/workflows/*.yml
+          echo "✅ All workflow files passed linting"
+
+  check-markdown:
+    name: Check Markdown Links
+    runs-on: ubuntu-22.04
+    timeout-minutes: 5
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8  # v5.0.0
+
+      - name: Check markdown links
+        uses: gaurav-nelson/github-action-markdown-link-check@5c5dfc0ac2e225883c0e5f03a85311ec2830d368  # v1.0.15
+        with:
+          use-quiet-mode: 'no'
+          use-verbose-mode: 'yes'
+          config-file: '.github/markdown-link-check-config.json'
+          check-modified-files-only: 'no'
+
+  verify-public-key:
+    name: Verify Public Key Format
+    runs-on: ubuntu-22.04
+    timeout-minutes: 5
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8  # v5.0.0
+
+      - name: Verify public key file exists
+        run: |
+          if [ ! -f "keys/AeroCogito_public_key.dat" ]; then
+            echo "❌ Error: Public key file not found"
+            exit 1
+          fi
+          echo "✅ Public key file exists"
+
+      - name: Verify public key format
+        run: |
+          # Check that the file starts with PUBLIC_KEYV1
+          if head -n1 keys/AeroCogito_public_key.dat | grep -q "PUBLIC_KEYV1"; then
+            echo "✅ Public key has correct ArduPilot format header"
+          else
+            echo "❌ Error: Public key missing PUBLIC_KEYV1 header"
+            exit 1
+          fi
+
+      - name: Verify public key size
+        run: |
+          SIZE=$(stat -c%s keys/AeroCogito_public_key.dat)
+          if [ "$SIZE" -eq 57 ]; then
+            echo "✅ Public key has correct size (57 bytes)"
+          else
+            echo "❌ Error: Public key has incorrect size ($SIZE bytes, expected 57)"
+            exit 1
+          fi
+
+      - name: Verify fingerprint matches
+        run: |
+          EXPECTED_FINGERPRINT="e3:37:0c:eb:9f:e4:78:de:fd:82:ba:a7:79:8c:4e:dc:95:be:3e:3b:95:fd:ca:ac:07:06:22:f2:f6:1b:16:91"
+          ACTUAL_FINGERPRINT=$(sha256sum keys/AeroCogito_public_key.dat | awk '{print $1}' | fold -w2 | paste -sd':' -)
+
+          if [ "$ACTUAL_FINGERPRINT" = "$EXPECTED_FINGERPRINT" ]; then
+            echo "✅ Public key fingerprint matches expected value"
+            echo "   Fingerprint: $ACTUAL_FINGERPRINT"
+          else
+            echo "❌ Error: Public key fingerprint mismatch"
+            echo "   Expected: $EXPECTED_FINGERPRINT"
+            echo "   Actual:   $ACTUAL_FINGERPRINT"
+            exit 1
+          fi
+
+  verify-documentation:
+    name: Verify Documentation Completeness
+    runs-on: ubuntu-22.04
+    timeout-minutes: 5
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8  # v5.0.0
+
+      - name: Check required files exist
+        run: |
+          echo "Checking for required documentation files..."
+          MISSING_FILES=()
+
+          for file in README.md SECURITY.md LICENSE .gitignore; do
+            if [ ! -f "$file" ]; then
+              MISSING_FILES+=("$file")
+            fi
+          done
+
+          if [ ${#MISSING_FILES[@]} -gt 0 ]; then
+            echo "❌ Error: Missing required files:"
+            printf '  - %s\n' "${MISSING_FILES[@]}"
+            exit 1
+          fi
+
+          echo "✅ All required documentation files present"
+
+      - name: Check SECURITY.md content
+        run: |
+          echo "Verifying SECURITY.md contains required sections..."
+          REQUIRED_SECTIONS=(
+            "NDAA Section 848"
+            "DIU Blue UAS"
+            "SLSA"
+            "Ed25519"
+            "Vulnerability Disclosure"
+          )
+
+          MISSING_SECTIONS=()
+          for section in "${REQUIRED_SECTIONS[@]}"; do
+            if ! grep -q "$section" SECURITY.md; then
+              MISSING_SECTIONS+=("$section")
+            fi
+          done
+
+          if [ ${#MISSING_SECTIONS[@]} -gt 0 ]; then
+            echo "❌ Error: SECURITY.md missing required sections:"
+            printf '  - %s\n' "${MISSING_SECTIONS[@]}"
+            exit 1
+          fi
+
+          echo "✅ SECURITY.md contains all required sections"
+
+  verify-workflow-security:
+    name: Verify Workflow Security Practices
+    runs-on: ubuntu-22.04
+    timeout-minutes: 5
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8  # v5.0.0
+
+      - name: Check for hardcoded secrets
+        run: |
+          echo "Scanning for potential hardcoded secrets..."
+
+          # Look for common secret patterns (excluding test files and this file itself)
+          PATTERNS=(
+            "AKIA[0-9A-Z]{16}"                    # AWS Access Key
+            "private[_-]?key"                      # Private key references
+            "sk_live_[0-9a-zA-Z]{24,}"            # Stripe
+            "ghp_[0-9a-zA-Z]{36}"                 # GitHub Personal Access Token
+            "glpat-[0-9a-zA-Z\-]{20,}"            # GitLab Token
+          )
+
+          FOUND_SECRETS=0
+          for pattern in "${PATTERNS[@]}"; do
+            if grep -r -i -E "$pattern" --exclude-dir={.git,node_modules} --exclude="tests.yml" .; then
+              echo "⚠️ Warning: Found potential secret pattern: $pattern"
+              FOUND_SECRETS=1
+            fi
+          done
+
+          if [ $FOUND_SECRETS -eq 1 ]; then
+            echo "❌ Error: Potential secrets found in repository"
+            exit 1
+          fi
+
+          echo "✅ No hardcoded secrets detected"
+
+      - name: Verify GitHub Actions are SHA-pinned
+        run: |
+          echo "Verifying all GitHub Actions use SHA pinning..."
+
+          # Check that no actions use @v notation (should use full SHA)
+          if grep -r "uses:.*@v[0-9]" .github/workflows/*.yml; then
+            echo "❌ Error: Found unpinned GitHub Actions (using @vX instead of SHA)"
+            exit 1
+          fi
+
+          echo "✅ All GitHub Actions are SHA-pinned"
+
+      - name: Verify runner versions are pinned
+        run: |
+          echo "Verifying runners use specific Ubuntu versions..."
+
+          if grep -r "runs-on:.*ubuntu-latest" .github/workflows/*.yml; then
+            echo "❌ Error: Found workflows using 'ubuntu-latest' instead of pinned version"
+            exit 1
+          fi
+
+          echo "✅ All runners use pinned Ubuntu versions"
+
+  security-summary:
+    name: Security Test Summary
+    runs-on: ubuntu-22.04
+    timeout-minutes: 5
+    needs: [lint-workflows, check-markdown, verify-public-key, verify-documentation, verify-workflow-security]
+    if: always()
+    steps:
+      - name: Check test results
+        run: |
+          echo "==================================="
+          echo "Security Test Suite Summary"
+          echo "==================================="
+          echo ""
+          echo "Job Results:"
+          echo "  - Lint Workflows: ${{ needs.lint-workflows.result }}"
+          echo "  - Check Markdown: ${{ needs.check-markdown.result }}"
+          echo "  - Verify Public Key: ${{ needs.verify-public-key.result }}"
+          echo "  - Verify Documentation: ${{ needs.verify-documentation.result }}"
+          echo "  - Verify Workflow Security: ${{ needs.verify-workflow-security.result }}"
+          echo ""
+
+          if [ "${{ needs.lint-workflows.result }}" = "failure" ] || \
+             [ "${{ needs.check-markdown.result }}" = "failure" ] || \
+             [ "${{ needs.verify-public-key.result }}" = "failure" ] || \
+             [ "${{ needs.verify-documentation.result }}" = "failure" ] || \
+             [ "${{ needs.verify-workflow-security.result }}" = "failure" ]; then
+            echo "❌ One or more security tests failed"
+            exit 1
+          fi
+
+          echo "✅ All security tests passed"

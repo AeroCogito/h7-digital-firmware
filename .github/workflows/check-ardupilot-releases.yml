@@ -6,16 +6,22 @@ on:
     - cron: '0 0 * * *'
   workflow_dispatch:  # Allow manual trigger
 
+# Prevent concurrent release checks
+concurrency:
+  group: check-releases
+  cancel-in-progress: true  # Can safely cancel duplicate checks
+
 jobs:
   check-releases:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04  # Pinned for reproducible builds (not ubuntu-latest)
+    timeout-minutes: 10  # Release checking should be quick
     outputs:
       new_release: ${{ steps.check.outputs.new_release }}
       release_tag: ${{ steps.check.outputs.release_tag }}
     
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8  # v5.0.0
         with:
           fetch-depth: 0
       
@@ -24,11 +30,23 @@ jobs:
         run: |
           BASE_VERSION="Copter-4.6.2"
 
-          # Fetch all Copter releases
-          LATEST_RELEASE=$(curl -s https://api.github.com/repos/ArduPilot/ardupilot/releases | \
-            jq -r '[.[] | select(.tag_name | test("^Copter-[0-9]+\\.[0-9]+\\.[0-9]+$"))] 
-                   | map(.tag_name) 
-                   | sort_by(. | sub("Copter-";"") | split(".") | map(tonumber)) 
+          # Fetch all Copter releases (authenticated to avoid rate limiting)
+          HTTP_RESPONSE=$(curl -s -w "\n%{http_code}" -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            https://api.github.com/repos/ArduPilot/ardupilot/releases)
+
+          HTTP_CODE=$(echo "$HTTP_RESPONSE" | tail -n1)
+          RESPONSE_BODY=$(echo "$HTTP_RESPONSE" | sed '$d')
+
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "❌ Error: GitHub API request failed with status $HTTP_CODE"
+            echo "Response: $RESPONSE_BODY"
+            exit 1
+          fi
+
+          LATEST_RELEASE=$(echo "$RESPONSE_BODY" | \
+            jq -r '[.[] | select(.tag_name | test("^Copter-[0-9]+\\.[0-9]+\\.[0-9]+$"))]
+                   | map(.tag_name)
+                   | sort_by(. | sub("Copter-";"") | split(".") | map(tonumber))
                    | last')
 
           echo "Latest Copter release: $LATEST_RELEASE"
@@ -61,7 +79,7 @@ jobs:
       
       - name: Trigger build if new release
         if: steps.check.outputs.new_release == 'true'
-        uses: peter-evans/repository-dispatch@v4
+        uses: peter-evans/repository-dispatch@5fc4efd1a4797ddb68ffd0714a238564e4cc0e6f  # v4.0.0
         with:
           token: ${{ secrets.DISPATCH_TOKEN }}
           event-type: build-new-release

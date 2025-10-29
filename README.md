@@ -1,12 +1,12 @@
 # AeroCogito H7 Digital Flight Controller
 
-[![Latest Release](https://img.shields.io/github/v/release/AeroCogito/H7-Digital-Flight-Controller?label=Latest%20Firmware)](../../releases/latest)
-[![Build Status](https://img.shields.io/github/actions/workflow/status/AeroCogito/H7-Digital-Flight-Controller/build-signed-firmware.yml?branch=main)](../../actions)
+[![Latest Release](https://img.shields.io/github/v/release/AeroCogito/h7-digital-firmware?label=Latest%20Firmware)](../../releases/latest)
+[![Build Status](https://img.shields.io/github/actions/workflow/status/AeroCogito/h7-digital-firmware/build-signed-firmware.yml?branch=main)](../../actions)
 [![License](https://img.shields.io/badge/License-GPL--3.0-blue.svg)](LICENSE)
 [![NDAA Compliant](https://img.shields.io/badge/NDAA%20848-Compliant-green.svg)](SECURITY.md)
 [![SLSA 2](https://slsa.dev/images/gh-badge-level2.svg)](SECURITY.md)
 
-Secure, NDAA / Blue UAS compliant ArduPilot firmware for the [**AeroCogito H7 Digital Flight Controller**](https://aerocogito.com/store/p/h7-digital)
+Secure, **NDAA** / **Blue UAS** compliant ArduPilot firmware for the [**AeroCogito H7 Digital Flight Controller**](https://aerocogito.com/store/p/h7-digital)
 
 ![AeroCogito H7 Digital Flight Controller](docs/images/H7-Digital_pinout.jpg)
 
@@ -19,7 +19,7 @@ Secure, NDAA / Blue UAS compliant ArduPilot firmware for the [**AeroCogito H7 Di
 ## 🔐 Security & Compliance
 
 - **Secure Boot:** Ed25519 signed firmware with hardware bootloader verification
-- **NDAA & Blue UAS Compliant:** Meets **NDAA Section 848 Operating Software** compliance and **DIU Blue UAS Framework** requirements
+- **NDAA & Blue UAS Compliant:** Meets **NDAA Section 848 Operating Software** compliance and **DIU Blue UAS Framework** requirements (PENDING)
 - **Built from Source:** Complete transparency with automated builds from official ArduPilot releases
 - **Cryptographic Verification:** SHA-256 and SHA-512 checksums for all releases
 - **🇺🇸 Made in the USA:** Hardware and firmware pipeline designed and maintained in the United States
@@ -35,91 +35,67 @@ Get the latest signed firmware from [Releases](../../releases/latest)
 | File | Purpose |
 |------|---------|
 | `*-signed.apj` | Firmware updates (requires secure bootloader already installed) |
+| `*-signed.abin`| Firmware updates via SD Card (requires secure bootloader already installed) |
 | `*-with-bootloader-signed.hex` | Complete system (secure bootloader + signed firmware for new installations) |
 
 ## 🚀 Quick Start
 
-### Option A: Standard Firmware Update (Already Have Bootloader)
+**Always verify checksums before installing** (see [Verification Guide](docs/VERIFICATION_GUIDE.md))
+
+### Option A: Firmware Update via Mission Planner/QGC
 
 1. Download `arducopter-*-signed.apj` from [Releases](../../releases/latest)
-2. Verify SHA-256/512 checksum
-3. Mission Planner → Setup → Install Firmware → Load custom firmware
-4. Select downloaded `.apj` file
+2. Mission Planner → Setup → Install Firmware → Load custom firmware
+3. Select downloaded `.apj` file
 
-### Option B: Fresh Installation or Recovery (DFU Mode Required)
+### Option B: Firmware Update via SD Card
+
+1. Download `arducopter-*-signed.abin` from [Releases](../../releases/latest)
+2. **Rename to exactly `ardupilot.abin`** (critical requirement)
+3. Copy to SD card root directory (not in any folder)
+4. Insert SD card and power cycle board
+5. Update completes in ~1 minute (file renamed to `ardupilot-flashed.abin`)
+
+### Option C: Fresh Installation (DFU Mode)
 
 1. Download `arducopter-*-with-bootloader-signed.hex` from [Releases](../../releases/latest)
-2. Verify SHA-256/512 checksum
-3. Put board in DFU mode (hold BOOT button while connecting USB)
-4. Flash using STM32CubeProgrammer or Betaflight Configurator
-5. Power cycle board
+2. Put board in DFU mode (hold BOOT button while connecting USB)
+3. Flash using STM32CubeProgrammer or BetaFlight Configurator
+4. Power cycle board
 
-See release notes for detailed instructions.
+**Detailed instructions:** See [Installation Guide](docs/INSTALLATION_GUIDE.md)
 
 ## 🔑 Public Key
 
-Firmware signing public key: [`keys/AeroCogito_public_key.dat`](keys/AeroCogito_public_key.dat)
-
-Public key fingerprint: [`keys/FINGERPRINT.txt`](/keys/FINGERPRINT.txt):
-```bash
+Firmware signing public key fingerprint ([`keys/FINGERPRINT.txt`](keys/FINGERPRINT.txt)):
+```
 e3:37:0c:eb:9f:e4:78:de:fd:82:ba:a7:79:8c:4e:dc:95:be:3e:3b:95:fd:ca:ac:07:06:22:f2:f6:1b:16:91
 ```
 
-The secure bootloader contains this key and only boots signed firmware.
+The secure bootloader contains this public key and only boots firmware with valid Ed25519 signatures. Full key file: [`keys/AeroCogito_public_key.dat`](keys/AeroCogito_public_key.dat)
 
-## ✅ Verify Firmware Authenticity
+## 🏗️ How It Works
 
-**Before installing, always verify checksums:**
-```bash
-# Linux/macOS
-sha256sum -c arducopter-*-SHA256SUMS.txt
+Automated builds check for new ArduPilot releases daily and produce cryptographically signed firmware with SLSA Level 2 attestations. The secure bootloader (built with embedded public key) verifies Ed25519 signatures before executing firmware.
 
-# Expected output: arducopter-*-signed.apj: OK
-```
-```powershell
-# Windows PowerShell
-Get-FileHash arducopter-*-signed.apj -Algorithm SHA256
-
-# Compare with SHA256SUMS.txt
-```
-
-## 📋 Repository Contents
-
-```
-├── .github/
-│   ├── CODEOWNERS                          # Code ownership and review requirements
-│   └── workflows/
-│       ├── build-signed-firmware.yml       # Main build pipeline
-│       └── check-ardupilot-releases.yml    # Auto-detect new ArduPilot releases
-├── docs/
-│   └── images/
-│       └── H7-Digital_pinout.jpg           # Hardware pinout diagram
-├── keys/
-│   ├── AeroCogito_public_key.dat           # Firmware signing public key
-│   └── FINGERPRINT.txt                     # Key fingerprint for verification
-├── .gitignore                              # Git ignore rules
-├── LICENSE                                 # GPLv3 license
-├── README.md                               # This file
-└── SECURITY.md                             # Security policy & compliance details
-```
-
-## 🏗️ Build Process
-
-Automated builds run daily at UTC midnight, checking for new ArduPilot releases:
-
-1. Clone official ArduPilot repository at tagged release
-2. Build from source for AeroCogito-H7Digital board
-3. Sign firmware with private key (stored as GitHub Secret)
-4. Generate cryptographic checksums
-5. Create GitHub release
-
-View build logs: [Actions](../../actions)
+**Build logs:** [GitHub Actions](../../actions)
+**Build workflow:** [build-signed-firmware.yml](.github/workflows/build-signed-firmware.yml)
+**Build process details:** [Maintainer Guide](docs/MAINTAINER_GUIDE.md#release-process)
 
 ## 📚 Documentation
 
-- **Installation Guide:** See individual release notes
-- **Security Policy:** [SECURITY.md](SECURITY.md)
-- **ArduPilot Documentation:** https://ardupilot.org/copter/
+### For Users
+- **[Verification Guide](docs/VERIFICATION_GUIDE.md)** - How to verify firmware authenticity
+- **[Installation Guide](docs/INSTALLATION_GUIDE.md)** - Detailed installation for all methods
+- **[Troubleshooting](docs/TROUBLESHOOTING.md)** - Common issues and solutions
+- **[Security Policy](SECURITY.md)** - Compliance details and vulnerability reporting
+
+### For Maintainers
+- **[Maintainer Guide](docs/MAINTAINER_GUIDE.md)** - Key generation, secrets setup, release process
+
+### External Resources
+- **[ArduPilot Documentation](https://ardupilot.org/copter/)** - Official ArduPilot docs
+- **[Hardware Specifications](https://aerocogito.com/store/p/h7-digital)** - AeroCogito H7 Digital details
 
 ## 🆘 Support
 
