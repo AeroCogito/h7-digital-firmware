@@ -372,6 +372,20 @@ jobs:
           echo "Release files prepared:"
           ls -lh release_files/
 
+      - name: Delete existing release and tag (if exists)
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG_NAME="${{ steps.get_tag.outputs.tag }}-signed"
+          echo "Checking for existing release: $TAG_NAME"
+
+          # Delete release if it exists
+          if gh release view "$TAG_NAME" >/dev/null 2>&1; then
+            echo "Deleting existing release..."
+            gh release delete "$TAG_NAME" --yes --cleanup-tag
+          fi
+
       - name: Create Release
         uses: softprops/action-gh-release@6da8fa9354ddfdc4aeace5fc48d7f679b5214090  # v2.4.1
         with:
