@@ -377,6 +377,7 @@ jobs:
         with:
           tag_name: ${{ steps.get_tag.outputs.tag }}-signed
           name: "Signed - ${{ steps.get_tag.outputs.tag }}"
+          target_commitish: ${{ github.sha }}
           body: |
             ## 🔐 Signed AeroCogito H7-Digital ArduPilot Firmware
 
