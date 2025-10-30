@@ -90,7 +90,7 @@ Meets [**SLSA Level 2**](https://slsa.dev) requirements for supply chain securit
 **Build Attestation (Supply Chain Security):**
 - **Signing Algorithm**: Sigstore (ECDSA P-256)
 - **Purpose**: Proves artifact was built by official GitHub Actions workflow
-- **Implementation**: [GitHub Attestations](https://docs.github.com/en/actions/security-guides/using-artifact-attestations)
+- **Implementation**: [GitHub Attestations](https://docs.github.com/en/actions/how-tos/secure-your-work/use-artifact-attestations/use-artifact-attestations)
 
 ## 🔑 Signing Key Security
 
@@ -198,7 +198,7 @@ The secure bootloader **automatically verifies** firmware signatures on every bo
   - High: 60 days
   - Medium: 90 days
 
-### Coordinated Disclosure
+### Coordinated Vulnerability Disclosure
 We follow responsible disclosure practices:
 1. Private notification and verification (you → us)
 2. Fix development and testing (us)

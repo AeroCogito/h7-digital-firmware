@@ -16,7 +16,7 @@ updates:
       - "security"
       - "github-actions"
     commit-message:
-      prefix: "chore(deps)"
+      prefix: "chore"
       include: "scope"
     # Group all patch updates together to reduce PR noise
     groups:

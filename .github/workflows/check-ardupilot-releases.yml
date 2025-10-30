@@ -1,3 +1,4 @@
+---
 name: Check ArduPilot Releases
 
 on:
@@ -18,13 +19,13 @@ jobs:
     outputs:
       new_release: ${{ steps.check.outputs.new_release }}
       release_tag: ${{ steps.check.outputs.release_tag }}
-    
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8  # v5.0.0
         with:
           fetch-depth: 0
-      
+
       - name: Check for new ArduPilot releases
         id: check
         run: |
@@ -76,7 +77,7 @@ jobs:
             echo "new_release=true" >> $GITHUB_OUTPUT
             echo "release_tag=$LATEST_RELEASE" >> $GITHUB_OUTPUT
           fi
-      
+
       - name: Trigger build if new release
         if: steps.check.outputs.new_release == 'true'
         uses: peter-evans/repository-dispatch@5fc4efd1a4797ddb68ffd0714a238564e4cc0e6f  # v4.0.0
@@ -84,7 +85,7 @@ jobs:
           token: ${{ secrets.DISPATCH_TOKEN }}
           event-type: build-new-release
           client-payload: '{"release_tag": "${{ steps.check.outputs.release_tag }}"}'
-      
+
       - name: Log result
         run: |
           if [ "${{ steps.check.outputs.new_release }}" == "true" ]; then

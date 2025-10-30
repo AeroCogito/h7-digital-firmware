@@ -5,6 +5,15 @@
     },
     {
       "pattern": "^https://github.com/.*/releases/tag/.*-signed$"
+    },
+    {
+      "pattern": "^\\.\\./\\.\\./releases"
+    },
+    {
+      "pattern": "^\\.\\./\\.\\./actions"
+    },
+    {
+      "pattern": "^https://www\\.st\\.com"
     }
   ],
   "replacementPatterns": [],
