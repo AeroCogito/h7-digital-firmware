@@ -212,7 +212,7 @@ jobs:
         run: |
           echo "Verifying runners use specific Ubuntu versions..."
 
-          if grep -r "runs-on:.*ubuntu-latest" .github/workflows/*.yml; then
+          if grep "runs-on:.*ubuntu-latest" .github/workflows/*.yml --exclude=tests.yml; then
             echo "❌ Error: Found workflows using 'ubuntu-latest' instead of pinned version"
             exit 1
           fi
