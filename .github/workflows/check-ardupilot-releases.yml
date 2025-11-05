@@ -29,7 +29,7 @@ jobs:
       - name: Check for new ArduPilot releases
         id: check
         run: |
-          BASE_VERSION="Copter-4.6.2"
+          BASE_VERSION="Copter-4.6.3"
 
           # Fetch all Copter releases (authenticated to avoid rate limiting)
           HTTP_RESPONSE=$(curl -s -w "\n%{http_code}" -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
