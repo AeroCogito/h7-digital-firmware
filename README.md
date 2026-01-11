@@ -19,7 +19,7 @@ Secure, **NDAA** / **Blue UAS** compliant ArduPilot firmware for the [**AeroCogi
 ## 🔐 Security & Compliance
 
 - **Secure Boot:** Ed25519 signed firmware with hardware bootloader verification
-- **NDAA & Blue UAS Compliant:** Meets **NDAA Section 848 Operating Software** compliance and **DIU Blue UAS Framework** requirements (PENDING)
+- **NDAA & Blue UAS Compliant:** Meets **NDAA Section 848 Operating Software** compliance and **DMCA Blue UAS Framework** requirements
 - **Built from Source:** Complete transparency with automated builds from official ArduPilot releases
 - **Cryptographic Verification:** SHA-256 and SHA-512 checksums for all releases
 - **🇺🇸 Made in the USA:** Hardware and firmware pipeline designed and maintained in the United States
