@@ -95,7 +95,14 @@ jobs:
       - name: Setup private key
         run: |
           echo "Setting up signing key..."
-          echo "${{ secrets.SIGNING_PRIVATE_KEY }}" | base64 -d > private_key.dat
+          if ! echo "${{ secrets.SIGNING_PRIVATE_KEY }}" | base64 -d > private_key.dat; then
+            echo "Error: Failed to decode signing key secret"
+            exit 1
+          fi
+          if [ ! -s private_key.dat ]; then
+            echo "Error: Private key file is empty after decoding"
+            exit 1
+          fi
           chmod 600 private_key.dat
           echo "✅ Private key configured"
 
@@ -333,8 +340,8 @@ jobs:
         if: always()
         run: |
           echo "Cleaning up private key..."
-          rm -f private_key.dat
-          echo "✅ Private key removed"
+          shred -vfz -n 3 private_key.dat 2>/dev/null || rm -f private_key.dat
+          echo "✅ Private key securely removed"
 
   create-release:
     needs: build
@@ -373,7 +380,6 @@ jobs:
           ls -lh release_files/
 
       - name: Delete existing release and tag (if exists)
-        continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -383,7 +389,10 @@ jobs:
           # Delete release if it exists
           if gh release view "$TAG_NAME" >/dev/null 2>&1; then
             echo "Deleting existing release..."
-            gh release delete "$TAG_NAME" --yes --cleanup-tag
+            if ! gh release delete "$TAG_NAME" --yes --cleanup-tag; then
+              echo "Warning: Could not delete release via gh, attempting direct tag cleanup..."
+              git push --delete origin "$TAG_NAME" 2>/dev/null || true
+            fi
           fi
 
       - name: Create Release

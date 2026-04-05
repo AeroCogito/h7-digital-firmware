@@ -12,6 +12,9 @@ concurrency:
   group: check-releases
   cancel-in-progress: true  # Can safely cancel duplicate checks
 
+permissions:
+  contents: read
+
 jobs:
   check-releases:
     runs-on: ubuntu-22.04  # Pinned for reproducible builds (not ubuntu-latest)
