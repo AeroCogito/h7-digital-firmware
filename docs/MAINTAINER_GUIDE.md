@@ -213,7 +213,7 @@ schedule:
 
 **How it works:**
 1. Workflow checks for new ArduPilot Copter releases
-2. Compares against baseline version (`Copter-4.6.2`) when the board support was first added
+2. Compares against baseline version (`Copter-4.6.3`) when the board support was first added
 3. Checks if release already built (looks for `{tag}-signed` in git tags)
 4. If new release found, triggers `build-signed-firmware.yml` via repository dispatch
 5. Build workflow compiles, signs, and publishes firmware
@@ -512,4 +512,4 @@ For maintainer-specific questions:
 
 **Document Version:** 1.0
 **Last Updated:** October 28, 2025
-**Next Review:** January 28, 2026
+**Next Review:** January 5, 2027

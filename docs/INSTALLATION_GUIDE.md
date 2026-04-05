@@ -41,7 +41,6 @@ Choose based on your installation method:
 
 1. **Install DFU Drivers** - Install STM32 DFU drivers:
    - Download & install: [STM32CubeProgrammer](https://www.st.com/en/development-tools/stm32cubeprog.html) (includes DFU drivers)
-   - Or use [ImpulseRC Driver Fixer](https://impulserc.com/pages/downloads)
    - Or use Zadig: [Zadig](https://zadig.akeo.ie/)
 
 ### Downloads

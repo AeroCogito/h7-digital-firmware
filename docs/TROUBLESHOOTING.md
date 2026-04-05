@@ -79,11 +79,7 @@ No LED at all:
 7. **Wait for completion**
 8. **Reconnect board**
 
-#### Solution 2: Install ImpulseRC Driver Fixer
-
-1. **Download and run**: [ImpulseRC Driver Fixer](https://impulserc.com/pages/downloads)
-
-#### Solution 3: Install STM32 DFU Drivers as part of STM32CubeProgrammer
+#### Solution 2: Install STM32 DFU Drivers as part of STM32CubeProgrammer
 
 1. **Download:** [STM32CubeProgrammer](https://www.st.com/en/development-tools/stm32cubeprog.html)
 2. **Extract and run installer**
